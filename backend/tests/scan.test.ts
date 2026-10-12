@@ -1,8 +1,17 @@
 import request from 'supertest';
 import app from '../src/app';
+import { sequelize } from '../src/config/database';
 
 describe('Scan API', () => {
   let scanId: string;
+
+  beforeAll(async () => {
+    await sequelize.sync({ force: true });
+  });
+
+  afterAll(async () => {
+    await sequelize.close();
+  });
 
   it('should create a new scan', async () => {
     const res = await request(app)

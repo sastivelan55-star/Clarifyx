@@ -9,6 +9,15 @@ import authRoutes from './routes/auth.routes';
 import { logger } from './config/logger';
 import { securityHeaders } from './middleware/security';
 import { generalLimiter } from './middleware/rateLimit';
+import { sequelize } from './config/database';
+import './models';
+
+// Auto-sync SQLite in test/dev environment on startup
+if (process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development') {
+  sequelize.sync().catch(err => {
+    logger.warn('Initial schema sync notification:', err.message);
+  });
+}
 
 const app = express();
 

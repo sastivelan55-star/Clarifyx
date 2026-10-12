@@ -27,10 +27,14 @@ export const createSyncScan = async (req: Request, res: Response, next: NextFunc
     
     // Reload scan to get updated status/results
     const updatedScan = await Scan.findByPk(scan.id, { include: [Result] });
+    const jsonOutput: any = updatedScan ? updatedScan.toJSON() : scan.toJSON();
+    if (jsonOutput.Result && !jsonOutput.result) {
+      jsonOutput.result = jsonOutput.Result;
+    }
 
     res.status(201).json({
       success: true,
-      data: updatedScan
+      data: jsonOutput
     });
   } catch (error) {
     next(error);
