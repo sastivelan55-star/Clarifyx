@@ -39,8 +39,10 @@ export class HeuristicMessageProvider implements MessageDetectionProvider {
   }
 }
 
+import { GeminiAIProvider } from './GeminiAIProvider';
+
 export class MessageScanner {
-  constructor(private provider: MessageDetectionProvider = new HeuristicMessageProvider()) {}
+  constructor(private provider: MessageDetectionProvider = new GeminiAIProvider()) {}
 
   async scan(text: string): Promise<RiskResult & { mode: string }> {
     const { signals, baseScore, confidence, mode } = await this.provider.analyze(text);
@@ -50,3 +52,4 @@ export class MessageScanner {
 }
 
 export const messageScanner = new MessageScanner();
+
