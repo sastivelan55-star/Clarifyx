@@ -1,11 +1,10 @@
 import { ApiError } from '../../types';
 
-const BASE_URL = '/api/v1'; // Assuming a typical proxy or relative path
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 async function fetchWithInterceptor(endpoint: string, options: RequestInit = {}) {
   const url = `${BASE_URL}${endpoint}`;
   
-  // Note: in a real app, we'd add auth headers here if not using HttpOnly cookies
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
@@ -14,13 +13,17 @@ async function fetchWithInterceptor(endpoint: string, options: RequestInit = {})
   try {
     const response = await fetch(url, { credentials: 'include', ...options, headers });
     
-    // We can handle 401 globally here if needed (e.g. redirect to login)
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      const fallbackStatus = response.status === 405
+        ? 'Endpoint method not allowed. Backend routing may be misconfigured.'
+        : response.status === 413
+          ? 'Uploaded payload exceeds maximum server limit.'
+          : response.statusText;
       const error: ApiError = {
-        message: errorData.message || response.statusText || 'An error occurred',
-        code: errorData.code || String(response.status),
-        details: errorData.details,
+        message: errorData.error?.message || errorData.message || fallbackStatus || 'An error occurred',
+        code: errorData.error?.code || errorData.code || String(response.status),
+        details: errorData.details || errorData.error?.details,
       };
       throw error;
     }
@@ -34,9 +37,8 @@ async function fetchWithInterceptor(endpoint: string, options: RequestInit = {})
     if ((error as ApiError).message) {
       throw error;
     }
-    // Handle network errors
     const networkError: ApiError = {
-      message: 'Network error. Please check your connection.',
+      message: 'Backend service unreachable. Please check your network connection.',
       code: 'NETWORK_ERROR'
     };
     throw networkError;
@@ -58,14 +60,27 @@ export const apiClient = {
       const response = await fetch(url, { credentials: 'include', ...options, method: 'POST', body: formData });
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        const fallbackStatus = response.status === 405
+          ? 'Endpoint method not allowed. Backend routing may be misconfigured.'
+          : response.status === 413
+            ? 'Uploaded file exceeds the maximum allowed payload size.'
+            : response.statusText;
         throw {
-          message: errorData.message || response.statusText,
-          code: errorData.code || String(response.status),
+          message: errorData.error?.message || errorData.message || fallbackStatus || 'An error occurred',
+          code: errorData.error?.code || errorData.code || String(response.status),
+          details: errorData.details || errorData.error?.details,
         } as ApiError;
       }
       return await response.json();
     } catch (error) {
-      throw error;
+      if ((error as ApiError).message) {
+        throw error;
+      }
+      const networkError: ApiError = {
+        message: 'Backend service unreachable. Please check your network connection.',
+        code: 'NETWORK_ERROR'
+      };
+      throw networkError;
     }
   }
 };

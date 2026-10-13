@@ -3,6 +3,8 @@ import path from 'path';
 import { env } from './env';
 import { logger } from './logger';
 
+import os from 'os';
+
 export const createSequelizeInstance = () => {
   // If explicitly configured for postgres and not test environment
   if (process.env.USE_POSTGRES === 'true' && env.DATABASE_URL && env.DATABASE_URL.startsWith('postgres')) {
@@ -24,7 +26,9 @@ export const createSequelizeInstance = () => {
   }
 
   // SQLite storage: zero external dependencies, robust and self-contained
-  const storagePath = path.join(process.cwd(), 'clarifyx_dev.sqlite');
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  const storageDir = isServerless ? os.tmpdir() : process.cwd();
+  const storagePath = path.join(storageDir, 'clarifyx_dev.sqlite');
   logger.info(`Using SQLite storage at: ${storagePath}`);
   return new Sequelize({
     dialect: 'sqlite',

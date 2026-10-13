@@ -190,7 +190,21 @@ export default function Scanner({ initialMode = 'URL', onScanCompleted, hideHead
         }
       }
     } catch (err: any) {
-      setNotice({ text: err.message || 'An error occurred during threat scanning.', type: 'error' });
+      let friendlyMessage = err.message || 'An error occurred during threat scanning.';
+      if (err.code === 'NETWORK_ERROR' || err.message?.includes('Failed to fetch') || err.message?.includes('Network error') || err.message?.includes('unreachable')) {
+        friendlyMessage = 'Backend not configured or unreachable. Verify backend deployment and API URL.';
+      } else if (err.code === 'UNSUPPORTED_FILE' || err.message?.includes('UNSUPPORTED_FILE')) {
+        friendlyMessage = 'Unsupported image format. Allowed formats: JPEG, PNG, and WebP.';
+      } else if (err.code === 'FILE_TOO_LARGE' || err.code === '413' || err.message?.includes('FILE_TOO_LARGE')) {
+        friendlyMessage = 'File too large. Maximum allowed file size is 10MB.';
+      } else if (err.code === 'SERVICE_UNAVAILABLE' || err.code === '503') {
+        friendlyMessage = 'Detection service unavailable. Please try again shortly.';
+      } else if (err.code === 'TIMEOUT' || err.code === '504' || err.message?.includes('timed out')) {
+        friendlyMessage = 'Analysis timed out. Please try again.';
+      } else if (err.code === '405' || err.message?.includes('405') || err.message?.includes('not allowed')) {
+        friendlyMessage = 'Backend API routing not configured or method not allowed on this host.';
+      }
+      setNotice({ text: friendlyMessage, type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -427,9 +441,9 @@ export default function Scanner({ initialMode = 'URL', onScanCompleted, hideHead
       )}
 
       {/* Scan Result Output */}
-      {scan?.status === 'COMPLETED' && scan.Result && (
+      {scan?.status === 'COMPLETED' && (scan.Result || scan.result) && (
         <ResultCard
-          result={scan.Result.data}
+          result={(scan.Result || scan.result).data}
           target={input || file?.name}
           scanType={mode}
         />

@@ -47,6 +47,43 @@ describe('Scan API', () => {
     expect(res.status).toBe(404);
   });
 
+  it('should upload and scan a valid JPEG image', async () => {
+    const fakeJpegBuffer = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
+    const res = await request(app)
+      .post('/api/v1/scans/media')
+      .field('scanType', 'IMAGE')
+      .attach('file', fakeJpegBuffer, { filename: 'download.jpg', contentType: 'image/jpeg' });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.scanType).toBe('IMAGE');
+    expect(res.body.data.status).toBe('COMPLETED');
+    expect(res.body.data.result).toBeDefined();
+    expect(res.body.data.result.data.mode).toBe('DEMO_MODE');
+  });
+
+  it('should reject an unsupported file format for image scan', async () => {
+    const fakePdfBuffer = Buffer.from('%PDF-1.4 ...');
+    const res = await request(app)
+      .post('/api/v1/scans/media')
+      .field('scanType', 'IMAGE')
+      .attach('file', fakePdfBuffer, { filename: 'malicious.pdf', contentType: 'application/pdf' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe('UNSUPPORTED_FILE');
+  });
+
+  it('should reject a malformed request without file', async () => {
+    const res = await request(app)
+      .post('/api/v1/scans/media')
+      .field('scanType', 'IMAGE');
+
+    expect(res.status).toBe(400);
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
   it('should delete a scan', async () => {
     const res = await request(app).delete(`/api/scans/${scanId}`);
     expect(res.status).toBe(200);

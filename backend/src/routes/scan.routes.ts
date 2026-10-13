@@ -8,12 +8,28 @@ import { createSyncScan, createMediaScan, getScans, getScanById, deleteScan, cre
 import { scanLimiter, uploadLimiter } from '../middleware/rateLimit';
 import { FileValidationService } from '../utils/fileSecurity';
 
+import os from 'os';
+import fs from 'fs';
+
 const router = Router();
+
+const getUploadDir = () => {
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  const dir = isServerless
+    ? path.join(os.tmpdir(), 'temp_uploads')
+    : path.join(process.cwd(), 'temp_uploads');
+  if (!fs.existsSync(dir)) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch (e) {}
+  }
+  return dir;
+};
 
 // Configure multer for temp local storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, path.join(process.cwd(), 'temp_uploads'));
+    cb(null, getUploadDir());
   },
   filename: (req, file, cb) => {
     const ext = FileValidationService.getSafeExtension(file.originalname);
@@ -23,7 +39,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
   storage,
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB absolute max (fine-grained validation in service)
+  limits: { fileSize: 25 * 1024 * 1024 } // 25MB max cap (fine-grained validation in service)
 });
 
 // Apply requireAuth to all scan routes

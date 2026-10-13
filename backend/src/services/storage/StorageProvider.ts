@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import { logger } from '../../config/logger';
 
 /**
  * StorageProvider Interface
@@ -17,9 +19,16 @@ export class LocalStorageProvider implements IStorageProvider {
   private baseDir: string;
 
   constructor() {
-    this.baseDir = path.join(process.cwd(), 'temp_uploads');
+    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+    this.baseDir = isServerless
+      ? path.join(os.tmpdir(), 'temp_uploads')
+      : path.join(process.cwd(), 'temp_uploads');
     if (!fs.existsSync(this.baseDir)) {
-      fs.mkdirSync(this.baseDir, { recursive: true });
+      try {
+        fs.mkdirSync(this.baseDir, { recursive: true });
+      } catch (err: any) {
+        logger.warn(`Storage directory initialization notice: ${err.message}`);
+      }
     }
   }
 
