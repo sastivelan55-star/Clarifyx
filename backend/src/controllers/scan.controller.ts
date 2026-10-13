@@ -1,8 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import { v4 as uuidv4 } from 'uuid';
 import { Scan, Result } from '../models';
 import { scanOrchestrator } from '../services/scanning/ScanOrchestrator';
 import { FileValidationService } from '../utils/fileSecurity';
+import { logger } from '../config/logger';
 
 const SyncScanTypeEnum = z.enum(['URL', 'MESSAGE', 'FAKE_NEWS']);
 
@@ -16,26 +18,82 @@ export const createSyncScanSchema = z.object({
 export const createSyncScan = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { scanType, input } = req.body;
-    const userId = req.user!.id; 
+    const userId = req.user?.id || '00000000-0000-0000-0000-000000000001'; 
 
-    const scan = await Scan.create({
-      userId,
-      scanType,
-      status: 'PENDING',
-    });
-
-    await scanOrchestrator.executeSyncScan(scan.id, scanType, input);
-    
-    // Reload scan to get updated status/results
-    const updatedScan = await Scan.findByPk(scan.id, { include: [Result] });
-    const jsonOutput: any = updatedScan ? updatedScan.toJSON() : scan.toJSON();
-    if (jsonOutput.Result && !jsonOutput.result) {
-      jsonOutput.result = jsonOutput.Result;
+    let scan: any = null;
+    try {
+      scan = await Scan.create({
+        userId,
+        scanType,
+        status: 'PENDING',
+      });
+    } catch (dbErr: any) {
+      logger.warn('Scan database record creation skipped (offline/in-memory mode):', dbErr.message);
     }
 
-    res.status(201).json({
+    if (scan) {
+      await scanOrchestrator.executeSyncScan(scan.id, scanType, input);
+      
+      const updatedScan = await Scan.findByPk(scan.id, { include: [Result] });
+      const jsonOutput: any = updatedScan ? updatedScan.toJSON() : scan.toJSON();
+      if (jsonOutput.Result && !jsonOutput.result) {
+        jsonOutput.result = jsonOutput.Result;
+      }
+
+      return res.status(201).json({
+        success: true,
+        data: jsonOutput
+      });
+    }
+
+    // Direct synchronous scan execution fallback when database is disconnected on serverless
+    let scanResult: any;
+    if (scanType === 'URL') {
+      const { urlScanner } = await import('../services/scanning/UrlScanner');
+      scanResult = await urlScanner.scan(input);
+    } else if (scanType === 'MESSAGE') {
+      const { messageScanner } = await import('../services/scanning/MessageScanner');
+      scanResult = await messageScanner.scan(input);
+    } else {
+      const { fakeNewsScanner } = await import('../services/scanning/MediaScanners');
+      scanResult = await fakeNewsScanner.scan(input);
+    }
+
+    const fallbackOutput = {
+      id: uuidv4(),
+      userId,
+      scanType,
+      status: 'COMPLETED',
+      riskScore: scanResult.score,
+      verdict: scanResult.level,
+      completedAt: new Date(),
+      Result: {
+        data: {
+          score: scanResult.score,
+          level: scanResult.level,
+          verdict: scanResult.verdict,
+          confidence: scanResult.confidence,
+          indicators: scanResult.indicators,
+          recommendation: scanResult.recommendation,
+          mode: scanResult.mode
+        }
+      },
+      result: {
+        data: {
+          score: scanResult.score,
+          level: scanResult.level,
+          verdict: scanResult.verdict,
+          confidence: scanResult.confidence,
+          indicators: scanResult.indicators,
+          recommendation: scanResult.recommendation,
+          mode: scanResult.mode
+        }
+      }
+    };
+
+    return res.status(201).json({
       success: true,
-      data: jsonOutput
+      data: fallbackOutput
     });
   } catch (error) {
     next(error);
@@ -86,26 +144,77 @@ export const createMediaScan = async (req: Request, res: Response, next: NextFun
       }
     }
 
-    const userId = req.user!.id; 
+    const userId = req.user?.id || '00000000-0000-0000-0000-000000000001'; 
     
-    const scan = await Scan.create({
-      userId,
-      scanType,
-      status: 'PENDING',
-    });
-
-    // Execute scan directly to ensure completion before serverless function terminates
-    await scanOrchestrator.executeMediaScan(scan.id, scanType, req.file.filename);
-
-    const updatedScan = await Scan.findByPk(scan.id, { include: [Result] });
-    const jsonOutput: any = updatedScan ? updatedScan.toJSON() : scan.toJSON();
-    if (jsonOutput.Result && !jsonOutput.result) {
-      jsonOutput.result = jsonOutput.Result;
+    let scan: any = null;
+    try {
+      scan = await Scan.create({
+        userId,
+        scanType,
+        status: 'PENDING',
+      });
+    } catch (dbErr: any) {
+      logger.warn('Scan DB record creation skipped (offline/in-memory mode):', dbErr.message);
     }
 
-    res.status(201).json({
+    if (scan) {
+      // Execute scan directly to ensure completion before serverless function terminates
+      await scanOrchestrator.executeMediaScan(scan.id, scanType, req.file.filename);
+
+      const updatedScan = await Scan.findByPk(scan.id, { include: [Result] });
+      const jsonOutput: any = updatedScan ? updatedScan.toJSON() : scan.toJSON();
+      if (jsonOutput.Result && !jsonOutput.result) {
+        jsonOutput.result = jsonOutput.Result;
+      }
+
+      return res.status(201).json({
+        success: true,
+        data: jsonOutput
+      });
+    }
+
+    // Direct analysis fallback when database storage is offline on serverless
+    const { imageScanner, videoScanner, voiceScanner } = await import('../services/scanning/MediaScanners');
+    let scanResult: any;
+    if (scanType === 'IMAGE') scanResult = await imageScanner.scan(req.file.filename);
+    else if (scanType === 'VIDEO') scanResult = await videoScanner.scan(req.file.filename);
+    else scanResult = await voiceScanner.scan(req.file.filename);
+
+    const fallbackScanOutput = {
+      id: uuidv4(),
+      userId,
+      scanType,
+      status: 'COMPLETED',
+      riskScore: scanResult.score,
+      verdict: scanResult.level,
+      completedAt: new Date(),
+      Result: {
+        data: {
+          score: scanResult.score,
+          level: scanResult.level,
+          verdict: scanResult.verdict,
+          confidence: scanResult.confidence,
+          indicators: scanResult.indicators,
+          recommendation: scanResult.recommendation,
+          mode: scanResult.mode
+        }
+      },
+      result: {
+        data: {
+          score: scanResult.score,
+          level: scanResult.level,
+          verdict: scanResult.verdict,
+          confidence: scanResult.confidence,
+          indicators: scanResult.indicators,
+          recommendation: scanResult.recommendation,
+          mode: scanResult.mode
+        }
+      }
+    };
+
+    return res.status(201).json({
       success: true,
-      data: jsonOutput
+      data: fallbackScanOutput
     });
   } catch (error) {
     next(error);
